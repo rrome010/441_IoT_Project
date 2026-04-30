@@ -7,8 +7,8 @@
 
 extern sensor_t door_sensor;
 extern sensor_t motion_sensor;
-/* extern sensor_t faucet_sensor;    -- TODO: faucet */
-/* extern sensor_t appliance_sensor; -- TODO: TV / appliance */
+extern sensor_t faucet_sensor;
+extern sensor_t appliance_sensor;
 
 typedef struct {
     sensor_t      *s;
@@ -28,10 +28,12 @@ int main(void) {
         return 1;
     }
 
-    sensor_t *sensors[] = {
-        &door_sensor,
-        &motion_sensor
-    };
+sensor_t *sensors[] = {
+    &door_sensor,
+    &motion_sensor,
+    &faucet_sensor,
+    &appliance_sensor
+};
 
     enum { N = sizeof(sensors) / sizeof(sensors[0]) };
 

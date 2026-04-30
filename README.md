@@ -151,13 +151,15 @@ To add a rule: write `static void rule_xxx(home_state_t *st, const event_t *ev)`
 
 ## What's open
 
-- `src/sensors/motion.c` — needed before any inference fires
-- `src/sensors/faucet.c`
-- `src/sensors/appliance.c`
 - Real GPIO via `/dev/mem` mmap (replaces the `sleep()` stubs once we have hardware)
 - `event_queue_pop_timed` + the AWAY-transition tick rule
 - Output module (LEDs/relays) once we know what's actually wired up
 - 3-page report
+
+## What's "completed"
+- `src/sensors/motion.c` — needed before any inference fires
+- `src/sensors/faucet.c`
+- `src/sensors/appliance.c`
 
 ## Hardware notes (for when stubs become real sensors)
 
