@@ -6,7 +6,7 @@
 #include <stdio.h>
 
 extern sensor_t door_sensor;
-/* extern sensor_t motion_sensor;    -- TODO: motion / camera */
+extern sensor_t motion_sensor;
 /* extern sensor_t faucet_sensor;    -- TODO: faucet */
 /* extern sensor_t appliance_sensor; -- TODO: TV / appliance */
 
@@ -28,21 +28,32 @@ int main(void) {
         return 1;
     }
 
-    sensor_t *sensors[] = { &door_sensor };
+    sensor_t *sensors[] = {
+        &door_sensor,
+        &motion_sensor
+    };
+
     enum { N = sizeof(sensors) / sizeof(sensors[0]) };
 
-    pthread_t      threads[N];
-    sensor_args_t  args[N];
+    pthread_t     threads[N];
+    sensor_args_t args[N];
+
     for (int i = 0; i < N; i++) {
         args[i].s = sensors[i];
         args[i].q = q;
-        pthread_create(&threads[i], NULL, sensor_thread, &args[i]);
+
+        if (pthread_create(&threads[i], NULL, sensor_thread, &args[i]) != 0) {
+            fprintf(stderr, "failed to create sensor thread\n");
+            return 1;
+        }
     }
 
     controller_run(q);
 
-    for (int i = 0; i < N; i++)
+    for (int i = 0; i < N; i++) {
         pthread_join(threads[i], NULL);
+    }
+
     event_queue_destroy(q);
     return 0;
 }

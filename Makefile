@@ -7,7 +7,8 @@ SRC := \
 	src/event_queue.c \
 	src/sensor.c \
 	src/controller.c \
-	src/sensors/door.c
+	src/sensors/door.c \
+	src/sensors/motion.c
 
 OBJ := $(SRC:.c=.o)
 BIN := smart_home
