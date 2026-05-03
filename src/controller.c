@@ -1,122 +1,166 @@
 #include "controller.h"
+#include "event.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 
-#define ARRIVAL_WINDOW_S   30
-#define FAUCET_WARN_S      (5 * 60)
-#define MOTION_IDLE_S      (5 * 60)
-
-typedef enum {
-    MODE_UNKNOWN,
-    MODE_HOME,
-    MODE_AWAY,
-} home_mode_t;
-
 typedef struct {
-    home_mode_t mode;
-    time_t      last_motion_ts;
-    time_t      last_door_open_ts;
-    time_t      last_door_close_ts;
-    int         door_open;
-    time_t      faucet_on_since;   /* 0 if off */
-    int         faucet_warned;
-    int         appliance_on;
-} home_state_t;
+    int door_recently_opened;
+    int hallway_motion_seen;
+    int bathroom_faucet_seen;
+    int living_room_motion_seen;
+} activity_state_t;
 
-static const char *mode_name(home_mode_t m) {
-    switch (m) {
-    case MODE_HOME: return "HOME";
-    case MODE_AWAY: return "AWAY";
-    default:        return "UNKNOWN";
+static activity_state_t activity_state = {0};
+
+static void print_timestamp(time_t timestamp) {
+    char buffer[32];
+    struct tm *tm_info = localtime(&timestamp);
+
+    if (tm_info) {
+        strftime(buffer, sizeof(buffer), "%H:%M:%S", tm_info);
+        printf("[%s] ", buffer);
     }
 }
 
-static void emit_action(const event_t *trigger, const char *action) {
-    char ts[32];
-    struct tm *tm = localtime(&trigger->timestamp);
-    strftime(ts, sizeof(ts), "%H:%M:%S", tm);
-    printf("[%s] >>> %s\n", ts, action);
+static const char *value_to_text(sensor_type_t type, int value) {
+    switch (type) {
+        case SENSOR_DOOR:
+            return value ? "OPEN" : "CLOSED";
+        case SENSOR_MOTION:
+            return value ? "MOTION DETECTED" : "NO MOTION";
+        case SENSOR_FAUCET:
+            return value ? "ON" : "OFF";
+        case SENSOR_APPLIANCE:
+            return value ? "ON" : "OFF";
+        case SENSOR_TEMP:
+            return "TEMPERATURE READING";
+        default:
+            return "UNKNOWN";
+    }
 }
 
-static void state_update(home_state_t *st, const event_t *ev) {
-    switch (ev->type) {
-    case SENSOR_DOOR:
-        st->door_open = ev->value;
-        if (ev->value) st->last_door_open_ts  = ev->timestamp;
-        else           st->last_door_close_ts = ev->timestamp;
-        break;
-    case SENSOR_MOTION:
-        if (ev->value) st->last_motion_ts = ev->timestamp;
-        break;
-    case SENSOR_FAUCET:
-        if (ev->value && st->faucet_on_since == 0) {
-            st->faucet_on_since = ev->timestamp;
-            st->faucet_warned   = 0;
-        } else if (!ev->value) {
-            st->faucet_on_since = 0;
-            st->faucet_warned   = 0;
+static void infer_activity(const event_t *ev) {
+    if (ev->type == SENSOR_DOOR && ev->value == 1) {
+        activity_state.door_recently_opened = 1;
+    }
+
+    if (ev->type == SENSOR_MOTION && ev->value == 1) {
+        if (strcmp(ev->location, "hallway") == 0) {
+            activity_state.hallway_motion_seen = 1;
+
+            if (activity_state.door_recently_opened) {
+                printf("  INFERENCE: Resident likely entered the home or moved through the doorway.\n");
+            }
         }
-        break;
-    case SENSOR_APPLIANCE:
-        st->appliance_on = ev->value;
-        break;
-    default:
-        break;
+
+        if (strcmp(ev->location, "living_room") == 0 ||
+            strcmp(ev->location, "living_room_tv") == 0) {
+            activity_state.living_room_motion_seen = 1;
+        }
+    }
+
+    if (ev->type == SENSOR_FAUCET && ev->value == 1) {
+        activity_state.bathroom_faucet_seen = 1;
+
+        if (activity_state.hallway_motion_seen) {
+            printf("  INFERENCE: Resident likely moved from hallway to bathroom and used the sink.\n");
+        } else {
+            printf("  INFERENCE: Resident is likely using water at the sink.\n");
+        }
+    }
+
+    if (ev->type == SENSOR_APPLIANCE && ev->value == 1) {
+        if (activity_state.living_room_motion_seen) {
+            printf("  INFERENCE: Resident likely entered the living room and turned on the TV.\n");
+        } else {
+            printf("  INFERENCE: Appliance/TV use detected.\n");
+        }
+    }
+
+    /*
+     * Reset simple inference state after a meaningful activity chain.
+     * This prevents the same old events from causing repeated conclusions forever.
+     */
+    if (activity_state.hallway_motion_seen &&
+        activity_state.bathroom_faucet_seen &&
+        ev->type == SENSOR_FAUCET &&
+        ev->value == 0) {
+        printf("  SUMMARY: Bathroom sink activity completed.\n");
+
+        activity_state.door_recently_opened = 0;
+        activity_state.hallway_motion_seen = 0;
+        activity_state.bathroom_faucet_seen = 0;
     }
 }
 
-typedef void (*rule_fn)(home_state_t *, const event_t *);
+static void handle_event(const event_t *ev) {
+    print_timestamp(ev->timestamp);
 
-static void rule_arrival(home_state_t *st, const event_t *ev) {
-    if (ev->type != SENSOR_MOTION || !ev->value) return;
-    if (st->last_door_open_ts == 0) return;
-    if (ev->timestamp - st->last_door_open_ts > ARRIVAL_WINDOW_S) return;
-    if (st->mode == MODE_HOME) return;
-    st->mode = MODE_HOME;
-    emit_action(ev, "ARRIVAL — turn on lights");
+    printf("[%s] sensor=%d location=%s state=%s\n",
+           sensor_type_name(ev->type),
+           ev->sensor_id,
+           ev->location,
+           value_to_text(ev->type, ev->value));
+
+    switch (ev->type) {
+        case SENSOR_DOOR:
+            if (ev->value) {
+                printf("  ACTIVITY: Door opened at %s. Possible entry or room transition.\n",
+                       ev->location);
+            } else {
+                printf("  ACTIVITY: Door closed at %s.\n", ev->location);
+            }
+            break;
+
+        case SENSOR_MOTION:
+            if (ev->value) {
+                printf("  ACTIVITY: Motion detected in %s.\n", ev->location);
+                printf("  ACTION: Turning ON light near %s.\n", ev->location);
+            } else {
+                printf("  ACTIVITY: No motion detected in %s.\n", ev->location);
+            }
+            break;
+
+        case SENSOR_FAUCET:
+            if (ev->value) {
+                printf("  ACTIVITY: Faucet is running at %s.\n", ev->location);
+                printf("  ACTION: Monitoring water usage.\n");
+            } else {
+                printf("  ACTIVITY: Faucet turned OFF at %s.\n", ev->location);
+            }
+            break;
+
+        case SENSOR_APPLIANCE:
+            if (ev->value) {
+                printf("  ACTIVITY: Appliance/TV turned ON at %s.\n", ev->location);
+            } else {
+                printf("  ACTIVITY: Appliance/TV turned OFF at %s.\n", ev->location);
+            }
+            break;
+
+        case SENSOR_TEMP:
+            printf("  ACTIVITY: Temperature sensor reading received from %s.\n",
+                   ev->location);
+            break;
+
+        default:
+            printf("  WARNING: Unknown sensor event received.\n");
+            break;
+    }
+
+    infer_activity(ev);
+
+    printf("\n");
 }
-
-static void rule_forgotten_faucet(home_state_t *st, const event_t *ev) {
-    if (st->faucet_on_since == 0 || st->faucet_warned) return;
-    if (ev->timestamp - st->faucet_on_since < FAUCET_WARN_S) return;
-    if (st->last_motion_ts != 0 &&
-        ev->timestamp - st->last_motion_ts < MOTION_IDLE_S) return;
-    emit_action(ev, "WARN: faucet running with no motion >5 min");
-    st->faucet_warned = 1;
-}
-
-static void rule_appliance_while_away(home_state_t *st, const event_t *ev) {
-    if (ev->type != SENSOR_APPLIANCE || !ev->value) return;
-    if (st->mode != MODE_AWAY) return;
-    emit_action(ev, "ALERT: appliance turned on while away");
-}
-
-static const rule_fn RULES[] = {
-    rule_arrival,
-    rule_forgotten_faucet,
-    rule_appliance_while_away,
-};
 
 void controller_run(event_queue_t *q) {
-    home_state_t st = { .mode = MODE_UNKNOWN };
     event_t ev;
-    while (event_queue_pop(q, &ev) == 0) {
-        state_update(&st, &ev);
 
-        char ts[32];
-        struct tm *tm = localtime(&ev.timestamp);
-        strftime(ts, sizeof(ts), "%H:%M:%S", tm);
-        printf("[%s] %s#%d @ %-12s value=%d   [mode=%s]\n",
-               ts, sensor_type_name(ev.type), ev.sensor_id,
-               ev.location, ev.value, mode_name(st.mode));
-
-        for (size_t i = 0; i < sizeof(RULES) / sizeof(RULES[0]); i++)
-            RULES[i](&st, &ev);
-
-        fflush(stdout);
+    while (1) {
+        if (event_queue_pop(q, &ev) == 0) {
+            handle_event(&ev);
+        }
     }
-    /* TODO: time-based rules (e.g., transition to AWAY after N min of no
-       motion) need a periodic wake-up. Add event_queue_pop_timed() and run
-       a tick pass on timeout. */
 }

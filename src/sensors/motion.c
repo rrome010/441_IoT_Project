@@ -5,6 +5,9 @@
 #include <time.h>
 #include <unistd.h>
 
+extern int random_mode;
+extern int hw_mode;
+
 typedef struct {
     int motion_detected;
 } motion_state_t;
@@ -22,13 +25,17 @@ static int motion_poll(sensor_t *s, event_t *out) {
 
     sleep(2);
 
-    /*
-     * Simulate motion detection.
-     * This randomly generates either:
-     * 0 = no motion
-     * 1 = motion detected
-     */
-    st->motion_detected = rand() % 2;
+    if (hw_mode) {
+        /*
+         * Hardware mode placeholder.
+         * Later replace this with DE10 switch/button input.
+         * Example future mapping: st->motion_detected = read_switch(1);
+         */
+        st->motion_detected = 0;
+    }
+    else if (random_mode) {
+        st->motion_detected = rand() % 2;
+    }
 
     out->type      = SENSOR_MOTION;
     out->sensor_id = s->sensor_id;

@@ -7,6 +7,7 @@ SRC := \
 	src/event_queue.c \
 	src/sensor.c \
 	src/controller.c \
+	src/demo.c \
 	src/sensors/door.c \
 	src/sensors/motion.c \
 	src/sensors/faucet.c \

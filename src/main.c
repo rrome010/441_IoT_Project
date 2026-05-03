@@ -1,9 +1,15 @@
 #include "controller.h"
+#include "demo.h"
 #include "event.h"
 #include "sensor.h"
 
 #include <pthread.h>
 #include <stdio.h>
+#include <string.h>
+
+int random_mode = 0;
+int demo_mode   = 0;
+int hw_mode     = 1;
 
 extern sensor_t door_sensor;
 extern sensor_t motion_sensor;
@@ -21,19 +27,54 @@ static void *sensor_thread(void *arg) {
     return NULL;
 }
 
-int main(void) {
+static void *controller_thread(void *arg) {
+    event_queue_t *q = arg;
+    controller_run(q);
+    return NULL;
+}
+
+int main(int argc, char *argv[]) {
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--random") == 0) {
+            random_mode = 1;
+            demo_mode   = 0;
+            hw_mode     = 0;
+        }
+        else if (strcmp(argv[i], "--demo") == 0) {
+            demo_mode   = 1;
+            random_mode = 0;
+            hw_mode     = 0;
+        }
+    }
+
     event_queue_t *q = event_queue_create(64);
     if (!q) {
         fprintf(stderr, "queue alloc failed\n");
         return 1;
     }
 
-sensor_t *sensors[] = {
-    &door_sensor,
-    &motion_sensor,
-    &faucet_sensor,
-    &appliance_sensor
-};
+    if (demo_mode) {
+        pthread_t controller;
+
+        if (pthread_create(&controller, NULL, controller_thread, q) != 0) {
+            fprintf(stderr, "failed to create controller thread\n");
+            event_queue_destroy(q);
+            return 1;
+        }
+
+        demo_run(q);
+
+        pthread_join(controller, NULL);
+        event_queue_destroy(q);
+        return 0;
+    }
+
+    sensor_t *sensors[] = {
+        &door_sensor,
+        &motion_sensor,
+        &faucet_sensor,
+        &appliance_sensor
+    };
 
     enum { N = sizeof(sensors) / sizeof(sensors[0]) };
 
@@ -46,6 +87,7 @@ sensor_t *sensors[] = {
 
         if (pthread_create(&threads[i], NULL, sensor_thread, &args[i]) != 0) {
             fprintf(stderr, "failed to create sensor thread\n");
+            event_queue_destroy(q);
             return 1;
         }
     }

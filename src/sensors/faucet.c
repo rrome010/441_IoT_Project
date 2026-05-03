@@ -5,6 +5,9 @@
 #include <time.h>
 #include <unistd.h>
 
+extern int random_mode;
+extern int hw_mode;
+
 typedef struct {
     int on;
 } faucet_state_t;
@@ -22,13 +25,17 @@ static int faucet_poll(sensor_t *s, event_t *out) {
 
     sleep(4);
 
-    /*
-     * Simulate faucet behavior.
-     * Randomly generate:
-     * 0 = faucet off
-     * 1 = faucet on
-     */
-    st->on = rand() % 2;
+    if (hw_mode) {
+        /*
+         * Hardware mode placeholder.
+         * Later replace this with DE10 switch/button input.
+         * Example future mapping: st->on = read_switch(2);
+         */
+        st->on = 0;
+    }
+    else if (random_mode) {
+        st->on = rand() % 2;
+    }
 
     out->type      = SENSOR_FAUCET;
     out->sensor_id = s->sensor_id;

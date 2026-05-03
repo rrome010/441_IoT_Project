@@ -5,9 +5,11 @@
 #include <time.h>
 #include <unistd.h>
 
+extern int random_mode;
+extern int hw_mode;
+
 typedef struct {
     int on;
-    int ticks_on;
 } appliance_state_t;
 
 static int appliance_init(sensor_t *s) {
@@ -23,17 +25,16 @@ static int appliance_poll(sensor_t *s, event_t *out) {
 
     sleep(5);
 
-    /*
-     * Simulated appliance/TV behavior:
-     * - Randomly turns on/off
-     * - Tracks how long it has been on using ticks
-     */
-    st->on = rand() % 2;
-
-    if (st->on) {
-        st->ticks_on++;
-    } else {
-        st->ticks_on = 0;
+    if (hw_mode) {
+        /*
+         * Hardware mode placeholder.
+         * Later replace this with DE10 switch/button input.
+         * Example future mapping: st->on = read_switch(3);
+         */
+        st->on = 0;
+    }
+    else if (random_mode) {
+        st->on = rand() % 2;
     }
 
     out->type      = SENSOR_APPLIANCE;
@@ -53,7 +54,7 @@ static void appliance_shutdown(sensor_t *s) {
 }
 
 sensor_t appliance_sensor = {
-    .name      = "appliance_timer",
+    .name      = "appliance",
     .type      = SENSOR_APPLIANCE,
     .sensor_id = 3,
     .init      = appliance_init,
