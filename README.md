@@ -49,8 +49,9 @@ The smart home controller reads sensor states, tracks timing information, and de
 | LED2 | Motion detected |
 | LED3 | Faucet running |
 | LED4 | TV/appliance active |
-| LED8 | Automatic hallway light |
-| LED9 | Alert condition |
+| LED7 | Water Alert |
+| LED9 | Automatic hallway light |
+
 
 ## System behavior
 
