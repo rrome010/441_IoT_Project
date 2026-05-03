@@ -1,4 +1,5 @@
 #include "sensor.h"
+#include "hw_io.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -23,10 +24,10 @@ static int door_init(sensor_t *s) {
 static int door_poll(sensor_t *s, event_t *out) {
     door_state_t *st = s->state;
 
-    sleep(3);
+    sleep(1);
 
     if (hw_mode) {
-        st->open = 0;
+        st->open = hw_read_switch(0);
     }
     else if (random_mode) {
         st->open = rand() % 2;

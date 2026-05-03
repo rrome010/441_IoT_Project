@@ -1,4 +1,5 @@
 #include "sensor.h"
+#include "hw_io.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -23,15 +24,10 @@ static int faucet_init(sensor_t *s) {
 static int faucet_poll(sensor_t *s, event_t *out) {
     faucet_state_t *st = s->state;
 
-    sleep(4);
+    sleep(1);
 
     if (hw_mode) {
-        /*
-         * Hardware mode placeholder.
-         * Later replace this with DE10 switch/button input.
-         * Example future mapping: st->on = read_switch(2);
-         */
-        st->on = 0;
+        st->on = hw_read_switch(2);
     }
     else if (random_mode) {
         st->on = rand() % 2;

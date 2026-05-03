@@ -1,6 +1,7 @@
 #include "controller.h"
 #include "demo.h"
 #include "event.h"
+#include "hw_io.h"
 #include "sensor.h"
 
 #include <pthread.h>
@@ -47,9 +48,17 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    if (hw_mode) {
+        if (hw_init() != 0) {
+            fprintf(stderr, "hardware init failed\n");
+            return 1;
+        }
+    }
+
     event_queue_t *q = event_queue_create(64);
     if (!q) {
         fprintf(stderr, "queue alloc failed\n");
+        if (hw_mode) hw_shutdown();
         return 1;
     }
 
@@ -88,6 +97,7 @@ int main(int argc, char *argv[]) {
         if (pthread_create(&threads[i], NULL, sensor_thread, &args[i]) != 0) {
             fprintf(stderr, "failed to create sensor thread\n");
             event_queue_destroy(q);
+            if (hw_mode) hw_shutdown();
             return 1;
         }
     }
@@ -99,5 +109,10 @@ int main(int argc, char *argv[]) {
     }
 
     event_queue_destroy(q);
+
+    if (hw_mode) {
+        hw_shutdown();
+    }
+
     return 0;
 }

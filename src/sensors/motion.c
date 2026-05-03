@@ -1,4 +1,5 @@
 #include "sensor.h"
+#include "hw_io.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -23,15 +24,10 @@ static int motion_init(sensor_t *s) {
 static int motion_poll(sensor_t *s, event_t *out) {
     motion_state_t *st = s->state;
 
-    sleep(2);
+    sleep(1);
 
     if (hw_mode) {
-        /*
-         * Hardware mode placeholder.
-         * Later replace this with DE10 switch/button input.
-         * Example future mapping: st->motion_detected = read_switch(1);
-         */
-        st->motion_detected = 0;
+        st->motion_detected = hw_read_switch(1);
     }
     else if (random_mode) {
         st->motion_detected = rand() % 2;

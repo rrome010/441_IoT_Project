@@ -8,6 +8,7 @@ SRC := \
 	src/sensor.c \
 	src/controller.c \
 	src/demo.c \
+	src/hw_io.c \
 	src/sensors/door.c \
 	src/sensors/motion.c \
 	src/sensors/faucet.c \

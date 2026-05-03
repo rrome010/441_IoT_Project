@@ -1,9 +1,12 @@
 #include "controller.h"
 #include "event.h"
+#include "hw_io.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+
+extern int hw_mode;
 
 typedef struct {
     int door_recently_opened;
@@ -13,6 +16,18 @@ typedef struct {
 } activity_state_t;
 
 static activity_state_t activity_state = {0};
+static unsigned int led_state = 0;
+
+static void set_led(int bit, int value) {
+    if (!hw_mode) return;
+
+    if (value)
+        led_state |= (1u << bit);
+    else
+        led_state &= ~(1u << bit);
+
+    hw_write_leds(led_state);
+}
 
 static void print_timestamp(time_t timestamp) {
     char buffer[32];
@@ -38,6 +53,29 @@ static const char *value_to_text(sensor_type_t type, int value) {
             return "TEMPERATURE READING";
         default:
             return "UNKNOWN";
+    }
+}
+
+static void update_leds_from_event(const event_t *ev) {
+    switch (ev->type) {
+        case SENSOR_DOOR:
+            set_led(0, ev->value);
+            break;
+
+        case SENSOR_MOTION:
+            set_led(1, ev->value);
+            break;
+
+        case SENSOR_FAUCET:
+            set_led(2, ev->value);
+            break;
+
+        case SENSOR_APPLIANCE:
+            set_led(3, ev->value);
+            break;
+
+        default:
+            break;
     }
 }
 
@@ -79,10 +117,6 @@ static void infer_activity(const event_t *ev) {
         }
     }
 
-    /*
-     * Reset simple inference state after a meaningful activity chain.
-     * This prevents the same old events from causing repeated conclusions forever.
-     */
     if (activity_state.hallway_motion_seen &&
         activity_state.bathroom_faucet_seen &&
         ev->type == SENSOR_FAUCET &&
@@ -103,6 +137,8 @@ static void handle_event(const event_t *ev) {
            ev->sensor_id,
            ev->location,
            value_to_text(ev->type, ev->value));
+
+    update_leds_from_event(ev);
 
     switch (ev->type) {
         case SENSOR_DOOR:
