@@ -21,10 +21,11 @@ static unsigned int led_state = 0;
 static void set_led(int bit, int value) {
     if (!hw_mode) return;
 
-    if (value)
+    if (value) {
         led_state |= (1u << bit);
-    else
+    } else {
         led_state &= ~(1u << bit);
+    }
 
     hw_write_leds(led_state);
 }
@@ -56,7 +57,7 @@ static const char *value_to_text(sensor_type_t type, int value) {
     }
 }
 
-static void update_leds_from_event(const event_t *ev) {
+static void update_status_leds(const event_t *ev) {
     switch (ev->type) {
         case SENSOR_DOOR:
             set_led(0, ev->value);
@@ -138,7 +139,14 @@ static void handle_event(const event_t *ev) {
            ev->location,
            value_to_text(ev->type, ev->value));
 
-    update_leds_from_event(ev);
+    /*
+     * Raw sensor status LEDs:
+     * LED0 = Door
+     * LED1 = Motion
+     * LED2 = Faucet
+     * LED3 = Appliance/TV
+     */
+    update_status_leds(ev);
 
     switch (ev->type) {
         case SENSOR_DOOR:
@@ -153,9 +161,12 @@ static void handle_event(const event_t *ev) {
         case SENSOR_MOTION:
             if (ev->value) {
                 printf("  ACTIVITY: Motion detected in %s.\n", ev->location);
-                printf("  ACTION: Turning ON light near %s.\n", ev->location);
+                printf("  ACTION: Turning ON hall light.\n");
+                set_led(8, 1);   // LED8 = hall light actuator
             } else {
                 printf("  ACTIVITY: No motion detected in %s.\n", ev->location);
+                printf("  ACTION: Turning OFF hall light.\n");
+                set_led(8, 0);
             }
             break;
 
@@ -163,8 +174,12 @@ static void handle_event(const event_t *ev) {
             if (ev->value) {
                 printf("  ACTIVITY: Faucet is running at %s.\n", ev->location);
                 printf("  ACTION: Monitoring water usage.\n");
+                printf("  ALERT: Faucet is currently active.\n");
+                set_led(9, 1);   // LED9 = alert indicator
             } else {
                 printf("  ACTIVITY: Faucet turned OFF at %s.\n", ev->location);
+                printf("  ALERT CLEARED: Faucet is off.\n");
+                set_led(9, 0);
             }
             break;
 

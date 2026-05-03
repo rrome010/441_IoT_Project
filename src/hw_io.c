@@ -14,9 +14,9 @@
 #define LW_BRIDGE_OFFSET 0x03200000
 
 // ===== PIO OFFSETS =====
-#define LED_PIO_BASE 0x5000   // LEDs (confirmed constant region)
-#define SW_PIO_BASE  0x4000   // SWITCHES (FOUND FROM YOUR SCAN)
-#define KEY_PIO_BASE 0x4040   // Buttons (typical, may adjust later)
+#define LED_PIO_BASE 0x3000
+#define SW_PIO_BASE  0x4000
+#define KEY_PIO_BASE 0x5000
 
 // ===== GLOBAL STATE =====
 static int fd = -1;

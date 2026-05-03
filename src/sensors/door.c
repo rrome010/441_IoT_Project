@@ -4,19 +4,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
 extern int random_mode;
 extern int hw_mode;
 
 typedef struct {
     int open;
+    int prev_open;
 } door_state_t;
 
 static int door_init(sensor_t *s) {
     door_state_t *st = calloc(1, sizeof(*st));
     if (!st) return -1;
 
+    st->prev_open = -1;
     s->state = st;
     return 0;
 }
@@ -24,14 +25,18 @@ static int door_init(sensor_t *s) {
 static int door_poll(sensor_t *s, event_t *out) {
     door_state_t *st = s->state;
 
-    sleep(1);
-
     if (hw_mode) {
         st->open = hw_read_switch(0);
     }
     else if (random_mode) {
         st->open = rand() % 2;
     }
+
+    if (st->open == st->prev_open) {
+        return 1; // no change
+    }
+
+    st->prev_open = st->open;
 
     out->type      = SENSOR_DOOR;
     out->sensor_id = s->sensor_id;

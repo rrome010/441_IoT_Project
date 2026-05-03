@@ -4,19 +4,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
 extern int random_mode;
 extern int hw_mode;
 
 typedef struct {
     int motion_detected;
+    int prev_motion_detected;
 } motion_state_t;
 
 static int motion_init(sensor_t *s) {
     motion_state_t *st = calloc(1, sizeof(*st));
     if (!st) return -1;
 
+    st->prev_motion_detected = -1;
     s->state = st;
     return 0;
 }
@@ -24,14 +25,18 @@ static int motion_init(sensor_t *s) {
 static int motion_poll(sensor_t *s, event_t *out) {
     motion_state_t *st = s->state;
 
-    sleep(1);
-
     if (hw_mode) {
         st->motion_detected = hw_read_switch(1);
     }
     else if (random_mode) {
         st->motion_detected = rand() % 2;
     }
+
+    if (st->motion_detected == st->prev_motion_detected) {
+        return 1; // no change
+    }
+
+    st->prev_motion_detected = st->motion_detected;
 
     out->type      = SENSOR_MOTION;
     out->sensor_id = s->sensor_id;
