@@ -1,396 +1,210 @@
 # smart_home
 
-ECE441 group project: a C application for the Terasic DE10-Standard (Cyclone V SoC, ARM Cortex-A9, Linux 4.5) that monitors household sensors, infers resident activity, and reacts to it.
+ECE 441 group project: a C application for the Terasic DE10-Standard Cyclone V SoC that simulates a smart home IoT system.
+
+The system monitors household sensor inputs, infers resident activity, and reacts using console output and DE10 LEDs.
 
 ## Assignment recap
 
-- IoT-style smart home system, runs on the **HPS** (Linux side) — no VHDL/HDL required.
-- Required peripherals: door, motion / camera, faucet, TV/appliance.
-- Must analyze resident activity and **combine multiple sensors to infer behavior**.
-- Final 3-page report due **2026-05-12**.
+- IoT-style smart home system running on the HPS/Linux side.
+- Required peripherals:
+  - Door sensor
+  - Motion/camera sensor
+  - Faucet sensor
+  - TV/appliance sensor
+- System must combine sensor data to infer resident behavior.
+- System should produce actions, alerts, and activity summaries.
 
 ## Architecture
 
-```
-  sensors/*           event_t queue            controller              outputs
-  +---------+         +-----------+         +-------------+         +--------+
-  | door    | --push--|           |--pop--> | state_update|         | stdout |
-  | motion  | --push--| mutex +   |         | rules table | --emit->| (LEDs /|
-  | faucet  | --push--| condvars  |         |             |         |  relays|
-  | appl.   | --push--|           |         |             |         |  later)|
-  +---------+         +-----------+         +-------------+         +--------+
-   1 pthread          bounded ring                                   TODO: real
-   per sensor         buffer, blocks                                 GPIO out
-                      on full/empty
+```text
+sensors / switches        controller logic             outputs
++----------------+        +----------------+           +----------------+
+| door sensor    | -----> | state tracking | --------> | stdout log     |
+| motion sensor  | -----> | activity rules | --------> | LED indicators |
+| faucet sensor  | -----> | alert checks   | --------> | summary stats  |
+| TV/appliance   | -----> | timing logic   |           |                |
++----------------+        +----------------+           +----------------+
 ```
 
-- **Sensors** are independent producers. Each runs in its own pthread, polls its source, and pushes an `event_t` into the shared queue.
-- **Event queue** is a bounded ring buffer with a mutex + two condvars (`not_empty`, `not_full`). Producers block when full; the controller blocks when empty.
-- **Controller** is a single consumer. On every event it (1) folds the event into a `home_state_t` summary, (2) logs it, (3) runs every rule in the rule table. Rules emit actions.
-- **Outputs** are stdout-only for now. A future `output.c` will mmap an FPGA register and drive LEDs / relays.
+The smart home controller reads sensor states, tracks timing information, and determines whether the resident is entering, moving through the home, using the faucet, watching TV, or causing an alert condition.
 
-## Directory layout
+## Hardware mapping
 
+### Inputs
+
+| Input | Function |
+|------|----------|
+| SW0 | Door sensor |
+| SW1 | Motion sensor |
+| SW2 | Faucet sensor |
+| SW3 | TV/appliance sensor |
+| KEY0 | Reset / optional trigger |
+
+### Outputs
+
+| LED | Meaning |
+|-----|---------|
+| LED1 | Door active |
+| LED2 | Motion detected |
+| LED3 | Faucet running |
+| LED4 | TV/appliance active |
+| LED8 | Automatic hallway light |
+| LED9 | Alert condition |
+
+## System behavior
+
+The system operates using both direct sensor feedback and inferred activity.
+
+### Direct sensor feedback
+
+```text
+SW0 -> LED1 -> Door active
+SW1 -> LED2 -> Motion detected
+SW2 -> LED3 -> Faucet running
+SW3 -> LED4 -> TV/appliance active
 ```
-smart_home/
+
+### Inferred outputs
+
+LED8 and LED9 are not direct sensor indicators.  
+They are derived from controller logic.
+
+```text
+Motion detected -> LED8 hallway light turns ON
+Faucet active too long -> LED9 alert turns ON
+```
+
+## Activity rules
+
+The controller uses simple activity rules to infer behavior from multiple inputs.
+
+```text
+IF motion is detected
+THEN turn on hallway light
+```
+
+```text
+IF faucet remains active longer than the allowed time
+THEN trigger alert condition
+```
+
+```text
+IF door opens AND motion follows
+THEN infer resident movement through the home
+```
+
+```text
+IF motion is detected AND TV/appliance is active
+THEN track a TV/appliance session
+```
+
+## Project structure
+
+```text
+441_IoT_Project/
 ├── Makefile
+├── README.md
 ├── include/
-│   ├── event.h          # event_t, sensor_type_t, queue API
-│   ├── sensor.h         # sensor_t interface, sensor_run()
-│   └── controller.h
+│   ├── controller.h
+│   ├── event.h
+│   ├── hw_io.h
+│   └── sensor.h
 └── src/
-    ├── main.c           # spawns sensor threads, runs controller in main
-    ├── event_queue.c    # bounded thread-safe queue
-    ├── sensor.c         # generic sensor_run() loop
-    ├── controller.c     # home_state_t + rule table
+    ├── controller.c
+    ├── demo.c
+    ├── event_queue.c
+    ├── hw_io.c
+    ├── main.c
+    ├── sensor.c
     └── sensors/
-        └── door.c       # working stub; toggles every 3s
+        ├── appliance.c
+        ├── door.c
+        ├── faucet.c
+        └── motion.c
 ```
 
-## Build & run
+## Build instructions
 
-Need `gcc` and `make` (or `mingw32-make` on MSYS2 ucrt64).
+Run these commands from the project root directory:
 
 ```bash
-cd smart_home
-make           # or: mingw32-make
-./smart_home
+make clean
+make
 ```
 
-Expected output (one line every 3 seconds, until you Ctrl+C):
+## Run instructions
 
-```
-[14:02:31] door#0 @ front_door   value=1   [mode=UNKNOWN]
-[14:02:34] door#0 @ front_door   value=0   [mode=UNKNOWN]
-```
-
-> **Heads up:** the scaffold has not been built end-to-end yet — first person to clone, run `make` and confirm clean build please.
-
-## Adding a sensor (one per teammate)
-
-The per-person task. One file in `src/sensors/` plus two lines elsewhere.
-
-### 1. Copy `src/sensors/door.c` to `src/sensors/<name>.c` and adapt
-
-```c
-#include "sensor.h"
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <unistd.h>
-
-typedef struct {
-    /* whatever per-sensor state you need */
-} my_state_t;
-
-static int my_init(sensor_t *s) {
-    s->state = calloc(1, sizeof(my_state_t));
-    return s->state ? 0 : -1;
-}
-
-static int my_poll(sensor_t *s, event_t *out) {
-    /* Block until your sensor has new data.
-       Real hw: read from a memory-mapped FPGA register.
-       Stub:    sleep() then synthesize a fake event.
-       Fill in `out`, return 0. Return -1 to signal shutdown. */
-}
-
-static void my_shutdown(sensor_t *s) {
-    free(s->state);
-}
-
-sensor_t my_sensor = {
-    .name      = "motion",
-    .type      = SENSOR_MOTION,    /* pick from event.h */
-    .sensor_id = 0,
-    .init      = my_init,
-    .poll      = my_poll,
-    .shutdown  = my_shutdown,
-};
-```
-
-### 2. Wire it into `src/main.c`
-
-```c
-extern sensor_t my_sensor;
-...
-sensor_t *sensors[] = { &door_sensor, &my_sensor };
-```
-
-### 3. Add the source to the Makefile's `SRC` list
-
-```make
-SRC := \
-    src/main.c \
-    ...
-    src/sensors/my_sensor.c
-```
-
-That's it. `controller.c` will see your events and run them through every rule automatically — no controller changes needed unless you want to add new inference logic.
-
-## How the controller infers behavior
-
-`controller.c` keeps a small `home_state_t` summarizing recent activity (mode, last motion timestamp, last door open/close, faucet-on-since, etc.).
-
-For every event:
-1. **`state_update`** folds the event into the state — no decisions, just bookkeeping.
-2. The event is logged with the current mode appended.
-3. Every function in `RULES[]` runs against the new event + state.
-
-Current rules:
-
-- `rule_arrival` — motion + door opened ≤ 30 s ago + not already HOME → mode = HOME, "turn on lights".
-- `rule_forgotten_faucet` — faucet on > 5 min + no motion ≥ 5 min → warn (once per faucet session).
-- `rule_appliance_while_away` — appliance turns on while AWAY → alert.
-
-To add a rule: write `static void rule_xxx(home_state_t *st, const event_t *ev)`, add it to `RULES[]`. Done.
-
-### Known gap: time-based rules
-
-"Mode → AWAY after N minutes of no motion" can't fire from event arrivals alone — `event_queue_pop` blocks indefinitely. Fix is a small `event_queue_pop_timed()` (using `pthread_cond_timedwait`) plus a "tick" pass on timeout. Tagged TODO in `controller.c`.
-
-## What's open
-
-- Real GPIO via `/dev/mem` mmap (replaces the `sleep()` stubs once we have hardware)
-- `event_queue_pop_timed` + the AWAY-transition tick rule
-- Output module (LEDs/relays) once we know what's actually wired up
-- 3-page report
-
-## What's "completed"
-- `src/sensors/motion.c` — needed before any inference fires
-- `src/sensors/faucet.c`
-- `src/sensors/appliance.c`
-
-## Hardware notes (for when stubs become real sensors)
-
-GPIO expansion on the DE10-Standard runs through the **FPGA fabric**, not direct ARM GPIO. The Terasic Golden Hardware Reference Design (GHRD) ships PIO blocks pre-wired to the GPIO headers and exposed across the **lightweight HPS-to-FPGA bridge** at `0xFF20_0000`. So even without writing VHDL, our sensor reads still travel through the fabric.
-
-The pattern each `*_init` will use:
-
-```c
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <stdint.h>
-
-#define LWHPS_BASE  0xFF200000
-#define LWHPS_SPAN  0x1000
-#define DOOR_PIO    0x40    /* whatever Platform Designer assigned */
-
-static int door_init(sensor_t *s) {
-    int fd = open("/dev/mem", O_RDWR | O_SYNC);
-    if (fd < 0) return -1;
-    void *base = mmap(NULL, LWHPS_SPAN, PROT_READ | PROT_WRITE,
-                      MAP_SHARED, fd, LWHPS_BASE);
-    close(fd);
-    if (base == MAP_FAILED) return -1;
-    s->state = base;
-    return 0;
-}
-
-static int door_poll(sensor_t *s, event_t *out) {
-    volatile uint32_t *regs = s->state;
-    /* TODO: replace polling with UIO-driven blocking read once IRQ is wired */
-    sleep(1);
-    int v = regs[DOOR_PIO / 4] & 1;
-    /* fill out as before */
-    return 0;
-}
-
-# smart_home
-
-ECE441 group project: a C application for the Terasic DE10-Standard (Cyclone V SoC, ARM Cortex-A9, Linux 4.5) that monitors household sensors, infers resident activity, and reacts to it.
-
-## Assignment recap
-
-- IoT-style smart home system, runs on the **HPS** (Linux side) — no VHDL/HDL required.
-- Required peripherals: door, motion / camera, faucet, TV/appliance.
-- Must analyze resident activity and **combine multiple sensors to infer behavior**.
-- Final 3-page report due **2026-05-12**.
-
-## Architecture
-
-```
-  sensors/*           event_t queue            controller              outputs
-  +---------+         +-----------+         +-------------+         +--------+
-  | door    | --push--|           |--pop--> | state_update|         | stdout |
-  | motion  | --push--| mutex +   |         | rules table | --emit->| (LEDs /|
-  | faucet  | --push--| condvars  |         |             |         |  relays|
-  | appl.   | --push--|           |         |             |         |  later)|
-  +---------+         +-----------+         +-------------+         +--------+
-   1 pthread          bounded ring                                   TODO: real
-   per sensor         buffer, blocks                                 GPIO out
-                      on full/empty
-```
-
-- **Sensors** are independent producers. Each runs in its own pthread, polls its source, and pushes an `event_t` into the shared queue.
-- **Event queue** is a bounded ring buffer with a mutex + two condvars (`not_empty`, `not_full`). Producers block when full; the controller blocks when empty.
-- **Controller** is a single consumer. On every event it (1) folds the event into a `home_state_t` summary, (2) logs it, (3) runs every rule in the rule table. Rules emit actions.
-- **Outputs** are stdout-only for now. A future `output.c` will mmap an FPGA register and drive LEDs / relays.
-
-## Directory layout
-
-```
-smart_home/
-├── Makefile
-├── include/
-│   ├── event.h          # event_t, sensor_type_t, queue API
-│   ├── sensor.h         # sensor_t interface, sensor_run()
-│   └── controller.h
-└── src/
-    ├── main.c           # spawns sensor threads, runs controller in main
-    ├── event_queue.c    # bounded thread-safe queue
-    ├── sensor.c         # generic sensor_run() loop
-    ├── controller.c     # home_state_t + rule table
-    └── sensors/
-        └── door.c       # working stub; toggles every 3s
-```
-
-## Build & run
-
-Need `gcc` and `make` (or `mingw32-make` on MSYS2 ucrt64).
+Run the main smart home program:
 
 ```bash
-cd smart_home
-make           # or: mingw32-make
-./smart_home
+sudo ./smart_home
 ```
 
-Expected output (one line every 3 seconds, until you Ctrl+C):
+If the controller is built as a separate executable, run:
 
-```
-[14:02:31] door#0 @ front_door   value=1   [mode=UNKNOWN]
-[14:02:34] door#0 @ front_door   value=0   [mode=UNKNOWN]
-```
-
-> **Heads up:** the scaffold has not been built end-to-end yet — first person to clone, run `make` and confirm clean build please.
-
-## Adding a sensor (one per teammate)
-
-The per-person task. One file in `src/sensors/` plus two lines elsewhere.
-
-### 1. Copy `src/sensors/door.c` to `src/sensors/<name>.c` and adapt
-
-```c
-#include "sensor.h"
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <unistd.h>
-
-typedef struct {
-    /* whatever per-sensor state you need */
-} my_state_t;
-
-static int my_init(sensor_t *s) {
-    s->state = calloc(1, sizeof(my_state_t));
-    return s->state ? 0 : -1;
-}
-
-static int my_poll(sensor_t *s, event_t *out) {
-    /* Block until your sensor has new data.
-       Real hw: read from a memory-mapped FPGA register.
-       Stub:    sleep() then synthesize a fake event.
-       Fill in `out`, return 0. Return -1 to signal shutdown. */
-}
-
-static void my_shutdown(sensor_t *s) {
-    free(s->state);
-}
-
-sensor_t my_sensor = {
-    .name      = "motion",
-    .type      = SENSOR_MOTION,    /* pick from event.h */
-    .sensor_id = 0,
-    .init      = my_init,
-    .poll      = my_poll,
-    .shutdown  = my_shutdown,
-};
+```bash
+sudo ./controller
 ```
 
-### 2. Wire it into `src/main.c`
+If using the demo program:
 
-```c
-extern sensor_t my_sensor;
-...
-sensor_t *sensors[] = { &door_sensor, &my_sensor };
+```bash
+./demo
 ```
 
-### 3. Add the source to the Makefile's `SRC` list
+## Suggested demo sequence
 
-```make
-SRC := \
-    src/main.c \
-    ...
-    src/sensors/my_sensor.c
+Use the switches to simulate a resident moving through the smart home.
+
+```text
+1. Turn on SW0 to simulate the door opening.
+2. Turn on SW1 to simulate motion.
+3. Turn on SW2 to simulate faucet usage.
+4. Leave SW2 on long enough to trigger an alert.
+5. Turn on SW3 to simulate TV/appliance usage.
+6. Observe LED outputs and console summary.
 ```
 
-That's it. `controller.c` will see your events and run them through every rule automatically — no controller changes needed unless you want to add new inference logic.
+Expected LED behavior:
 
-## How the controller infers behavior
+```text
+SW0 ON -> LED1 ON
+SW1 ON -> LED2 ON and LED8 ON
+SW2 ON -> LED3 ON
+SW3 ON -> LED4 ON
+Faucet active too long -> LED9 ON
+```
 
-`controller.c` keeps a small `home_state_t` summarizing recent activity (mode, last motion timestamp, last door open/close, faucet-on-since, etc.).
+## Design notes
 
-For every event:
-1. **`state_update`** folds the event into the state — no decisions, just bookkeeping.
-2. The event is logged with the current mode appended.
-3. Every function in `RULES[]` runs against the new event + state.
+- The program runs on the Linux/HPS side of the DE10-Standard.
+- Hardware I/O is accessed through memory-mapped I/O.
+- Switches are used as simulated smart home sensors.
+- LEDs are used as visible actuators and status indicators.
+- The controller polls sensor values and updates system state.
+- Timing logic is used to detect extended activity.
+- Activity summaries are printed to the console.
 
-Current rules:
+## Known limitations
 
-- `rule_arrival` — motion + door opened ≤ 30 s ago + not already HOME → mode = HOME, "turn on lights".
-- `rule_forgotten_faucet` — faucet on > 5 min + no motion ≥ 5 min → warn (once per faucet session).
-- `rule_appliance_while_away` — appliance turns on while AWAY → alert.
+- The system currently uses polling instead of interrupts.
+- Sensor inputs are simplified using DE10 switches.
+- No persistent database logging is currently implemented.
+- Timing thresholds may need adjustment for live demonstration.
+- The system is intended as a functional prototype rather than a complete smart home product.
 
-To add a rule: write `static void rule_xxx(home_state_t *st, const event_t *ev)`, add it to `RULES[]`. Done.
+## Future improvements
 
-### Known gap: time-based rules
+- Add a timewheel-style event scheduler.
+- Add persistent logging to a file or database.
+- Add interrupt-driven sensor handling.
+- Add more simulated sensors.
+- Improve activity classification rules.
+- Add a final report output mode.
+- Expand the demo sequence for repeatable testing.
 
-"Mode → AWAY after N minutes of no motion" can't fire from event arrivals alone — `event_queue_pop` blocks indefinitely. Fix is a small `event_queue_pop_timed()` (using `pthread_cond_timedwait`) plus a "tick" pass on timeout. Tagged TODO in `controller.c`.
+## Author
 
-## What's open
-
-- Real GPIO via `/dev/mem` mmap (replaces the `sleep()` stubs once we have hardware)
-- `event_queue_pop_timed` + the AWAY-transition tick rule
-- Output module (LEDs/relays) once we know what's actually wired up
-- 3-page report
-
-## What's "completed"
-- `src/sensors/motion.c` — needed before any inference fires
-- `src/sensors/faucet.c`
-- `src/sensors/appliance.c`
-
-## Hardware notes (for when stubs become real sensors)
-
-GPIO expansion on the DE10-Standard runs through the **FPGA fabric**, not direct ARM GPIO. The Terasic Golden Hardware Reference Design (GHRD) ships PIO blocks pre-wired to the GPIO headers and exposed across the **lightweight HPS-to-FPGA bridge** at `0xFF20_0000`. So even without writing VHDL, our sensor reads still travel through the fabric.
-
-The pattern each `*_init` will use:
-
-```c
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <stdint.h>
-
-#define LWHPS_BASE  0xFF200000
-#define LWHPS_SPAN  0x1000
-#define DOOR_PIO    0x40    /* whatever Platform Designer assigned */
-
-static int door_init(sensor_t *s) {
-    int fd = open("/dev/mem", O_RDWR | O_SYNC);
-    if (fd < 0) return -1;
-    void *base = mmap(NULL, LWHPS_SPAN, PROT_READ | PROT_WRITE,
-                      MAP_SHARED, fd, LWHPS_BASE);
-    close(fd);
-    if (base == MAP_FAILED) return -1;
-    s->state = base;
-    return 0;
-}
-
-static int door_poll(sensor_t *s, event_t *out) {
-    volatile uint32_t *regs = s->state;
-    /* TODO: replace polling with UIO-driven blocking read once IRQ is wired */
-    sleep(1);
-    int v = regs[DOOR_PIO / 4] & 1;
-    /* fill out as before */
-    return 0;
-}
-
+Robert Romero  
+ECE 441 IoT Project
