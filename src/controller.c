@@ -5,8 +5,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 extern int hw_mode;
+
+#define HALL_LIGHT_LED_BIT 8
+#define FAUCET_ALERT_LED_BIT 6
 
 /*
  * LED mapping:
@@ -17,7 +21,7 @@ extern int hw_mode;
  * LED3 = Appliance / TV sensor status
  *
  * LED8 = Hall light actuator
- * LED9 = Alert indicator
+ * LED6 = Faucet alert indicator
  */
 
 typedef struct {
@@ -35,6 +39,10 @@ typedef struct {
 static activity_state_t activity_state = {0};
 
 static unsigned int led_state = 0;
+
+static time_t faucet_start_time = 0;
+static int faucet_active = 0;
+static int motion_active = 0;
 
 static void set_led(int bit, int value) {
     if (!hw_mode) {
@@ -106,18 +114,10 @@ static void update_status_leds(const event_t *ev) {
 }
 
 static void infer_activity(const event_t *ev) {
-    /*
-     * Door opened:
-     * Start a possible resident movement sequence.
-     */
     if (ev->type == SENSOR_DOOR && ev->value == 1) {
         activity_state.door_seen = 1;
     }
 
-    /*
-     * Motion detected:
-     * Used for hallway movement and possible room transition.
-     */
     if (ev->type == SENSOR_MOTION && ev->value == 1) {
         if (strcmp(ev->location, "hallway") == 0) {
             activity_state.hallway_motion_seen = 1;
@@ -127,17 +127,9 @@ static void infer_activity(const event_t *ev) {
             }
         }
 
-        /*
-         * In this project, the motion sensor represents hallway/camera activity.
-         * If your demo later adds a second motion sensor, this logic can be expanded.
-         */
         activity_state.living_room_motion_seen = 1;
     }
 
-    /*
-     * Faucet ON:
-     * Combine door + motion + faucet into bathroom activity.
-     */
     if (ev->type == SENSOR_FAUCET && ev->value == 1) {
         activity_state.faucet_seen = 1;
 
@@ -148,9 +140,6 @@ static void infer_activity(const event_t *ev) {
             printf("  SUMMARY: Bathroom visit count = %d\n",
                    activity_state.bathroom_visit_count);
 
-            /*
-             * Reset only the sequence flags that produced this inference.
-             */
             activity_state.door_seen = 0;
             activity_state.hallway_motion_seen = 0;
             activity_state.faucet_seen = 0;
@@ -168,10 +157,6 @@ static void infer_activity(const event_t *ev) {
         }
     }
 
-    /*
-     * Faucet OFF:
-     * Complete faucet event.
-     */
     if (ev->type == SENSOR_FAUCET && ev->value == 0) {
         if (activity_state.faucet_seen) {
             printf("  SUMMARY: Faucet activity completed.\n");
@@ -180,10 +165,6 @@ static void infer_activity(const event_t *ev) {
         activity_state.faucet_seen = 0;
     }
 
-    /*
-     * Appliance/TV ON:
-     * Combine previous motion with TV usage.
-     */
     if (ev->type == SENSOR_APPLIANCE && ev->value == 1) {
         activity_state.tv_seen = 1;
 
@@ -201,10 +182,6 @@ static void infer_activity(const event_t *ev) {
         }
     }
 
-    /*
-     * Appliance/TV OFF:
-     * Complete TV event.
-     */
     if (ev->type == SENSOR_APPLIANCE && ev->value == 0) {
         if (activity_state.tv_seen) {
             printf("  SUMMARY: TV/appliance session completed.\n");
@@ -223,13 +200,6 @@ static void handle_event(const event_t *ev) {
            ev->location,
            value_to_text(ev->type, ev->value));
 
-    /*
-     * Raw status LEDs:
-     * LED0 = Door
-     * LED1 = Motion
-     * LED2 = Faucet
-     * LED3 = Appliance/TV
-     */
     update_status_leds(ev);
 
     switch (ev->type) {
@@ -245,21 +215,21 @@ static void handle_event(const event_t *ev) {
 
         case SENSOR_MOTION:
             if (ev->value) {
+                motion_active = 1;
+
                 printf("  ACTIVITY: Motion detected in %s.\n",
                        ev->location);
                 printf("  ACTION: Turning ON hall light.\n");
 
-                /*
-                 * LED8 is an actuator output.
-                 * It simulates an automatic smart-home light.
-                 */
-                set_led(8, 1);
+                set_led(HALL_LIGHT_LED_BIT, 1);
             } else {
+                motion_active = 0;
+
                 printf("  ACTIVITY: No motion detected in %s.\n",
                        ev->location);
                 printf("  ACTION: Turning OFF hall light.\n");
 
-                set_led(8, 0);
+                set_led(HALL_LIGHT_LED_BIT, 0);
             }
             break;
 
@@ -268,19 +238,18 @@ static void handle_event(const event_t *ev) {
                 printf("  ACTIVITY: Faucet is running at %s.\n",
                        ev->location);
                 printf("  ACTION: Monitoring water usage.\n");
-                printf("  ALERT: Faucet is currently active.\n");
 
-                /*
-                 * LED9 is the alert indicator.
-                 */
-                set_led(9, 1);
-                activity_state.faucet_alert_count++;
+                if (!faucet_active) {
+                    faucet_start_time = time(NULL);
+                    faucet_active = 1;
+                }
             } else {
                 printf("  ACTIVITY: Faucet turned OFF at %s.\n",
                        ev->location);
                 printf("  ALERT CLEARED: Faucet is off.\n");
 
-                set_led(9, 0);
+                faucet_active = 0;
+                set_led(FAUCET_ALERT_LED_BIT, 0);
             }
             break;
 
@@ -311,10 +280,42 @@ static void handle_event(const event_t *ev) {
 
 void controller_run(event_queue_t *q) {
     event_t ev;
+    int faucet_alert_active = 0;
 
     while (1) {
-        if (event_queue_pop(q, &ev) == 0) {
+        if (event_queue_try_pop(q, &ev) == 0) {
             handle_event(&ev);
         }
+
+        /*
+         * Keep LED6 ON while faucet has been active for 5 seconds or more.
+         */
+        if (faucet_active) {
+            time_t current_time = time(NULL);
+
+            if (current_time - faucet_start_time >= 5) {
+                if (!faucet_alert_active) {
+                    printf("  ALERT: Faucet left running too long!\n");
+                    activity_state.faucet_alert_count++;
+                    faucet_alert_active = 1;
+                }
+
+                set_led(FAUCET_ALERT_LED_BIT, 1);
+            }
+        } else {
+            faucet_alert_active = 0;
+            set_led(FAUCET_ALERT_LED_BIT, 0);
+        }
+
+        /*
+         * Keep LED8 ON while motion is active.
+         */
+        if (motion_active) {
+            set_led(HALL_LIGHT_LED_BIT, 1);
+        } else {
+            set_led(HALL_LIGHT_LED_BIT, 0);
+        }
+
+        usleep(100000);
     }
 }
