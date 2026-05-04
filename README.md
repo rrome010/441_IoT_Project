@@ -140,21 +140,11 @@ Run the main smart home program:
 
 ```bash
 sudo ./smart_home
+normal execution runs with memory addressess of switches, and leds on the de10
+use flags --random for random inputs of sensors or --demo for a predefined demo
 ```
 
-If the controller is built as a separate executable, run:
-
-```bash
-sudo ./controller
-```
-
-If using the demo program:
-
-```bash
-./demo
-```
-
-## Suggested demo sequence
+## Suggested  sequence
 
 Use the switches to simulate a resident moving through the smart home.
 
