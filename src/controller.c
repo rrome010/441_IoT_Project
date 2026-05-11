@@ -2,12 +2,14 @@
 #include "event.h"
 #include "hw_io.h"
 
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
 
 extern int hw_mode;
+extern volatile sig_atomic_t shutdown_requested;
 
 #define HALL_LIGHT_LED_BIT 8
 #define FAUCET_ALERT_LED_BIT 6
@@ -282,7 +284,7 @@ void controller_run(event_queue_t *q) {
     event_t ev;
     int faucet_alert_active = 0;
 
-    while (1) {
+    while (!shutdown_requested) {
         if (event_queue_try_pop(q, &ev) == 0) {
             handle_event(&ev);
         }
@@ -317,5 +319,9 @@ void controller_run(event_queue_t *q) {
         }
 
         usleep(100000);
+    }
+
+    while (event_queue_try_pop(q, &ev) == 0) {
+        handle_event(&ev);
     }
 }

@@ -5,12 +5,20 @@
 #include "sensor.h"
 
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 
 int random_mode = 0;
 int demo_mode   = 0;
 int hw_mode     = 1;
+
+volatile sig_atomic_t shutdown_requested = 0;
+
+static void sigint_handler(int sig) {
+    (void)sig;
+    shutdown_requested = 1;
+}
 
 extern sensor_t door_sensor;
 extern sensor_t motion_sensor;
@@ -35,6 +43,8 @@ static void *controller_thread(void *arg) {
 }
 
 int main(int argc, char *argv[]) {
+    signal(SIGINT, sigint_handler);
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--random") == 0) {
             random_mode = 1;
@@ -72,6 +82,8 @@ int main(int argc, char *argv[]) {
         }
 
         demo_run(q);
+
+        shutdown_requested = 1;
 
         pthread_join(controller, NULL);
         event_queue_destroy(q);

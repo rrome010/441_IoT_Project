@@ -1,7 +1,10 @@
 #include "sensor.h"
 
+#include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
+
+extern volatile sig_atomic_t shutdown_requested;
 
 void sensor_run(sensor_t *s, event_queue_t *q) {
     if (s->init && s->init(s) != 0) {
@@ -11,7 +14,7 @@ void sensor_run(sensor_t *s, event_queue_t *q) {
 
     event_t ev;
 
-    while (1) {
+    while (!shutdown_requested) {
         int result = s->poll(s, &ev);
 
         if (result == 0) {
