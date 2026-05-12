@@ -127,9 +127,9 @@ static void infer_activity(const event_t *ev) {
             if (activity_state.door_seen) {
                 printf("  INFERENCE: Resident likely entered the home or moved through the doorway.\n");
             }
+        } else if (strcmp(ev->location, "living_room") == 0) {
+            activity_state.living_room_motion_seen = 1;
         }
-
-        activity_state.living_room_motion_seen = 1;
     }
 
     if (ev->type == SENSOR_FAUCET && ev->value == 1) {
