@@ -309,19 +309,15 @@ void controller_run(event_queue_t *q) {
             set_led(FAUCET_ALERT_LED_BIT, 0);
         }
 
-        /*
-         * Keep LED8 ON while motion is active.
-         */
-        if (motion_active) {
-            set_led(HALL_LIGHT_LED_BIT, 1);
-        } else {
-            set_led(HALL_LIGHT_LED_BIT, 0);
-        }
-
         usleep(100000);
     }
 
     while (event_queue_try_pop(q, &ev) == 0) {
         handle_event(&ev);
     }
+
+    printf("\n=== Final activity summary ===\n");
+    printf("Bathroom visits:       %d\n", activity_state.bathroom_visit_count);
+    printf("TV/appliance sessions: %d\n", activity_state.tv_session_count);
+    printf("Faucet alerts:         %d\n", activity_state.faucet_alert_count);
 }

@@ -6,12 +6,10 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-// HPS → FPGA lightweight bridge
-#define HW_REGS_BASE  0xFC000000
-#define HW_REGS_SPAN  0x04000000
-
-// Offset to lightweight bridge (0xFF200000 - 0xFC000000)
-#define LW_BRIDGE_OFFSET 0x03200000
+// HPS-to-FPGA lightweight bridge: 0xFF200000 .. 0xFF300000 (2 MB).
+// We only touch the first 64 KB, which is plenty for the PIO blocks below.
+#define HW_REGS_BASE  0xFF200000
+#define HW_REGS_SPAN  0x10000
 
 // ===== PIO OFFSETS =====
 #define LED_PIO_BASE 0x3000
@@ -45,7 +43,7 @@ int hw_init(void)
         return -1;
     }
 
-    lw_virtual_base = (uint8_t *)virtual_base + LW_BRIDGE_OFFSET;
+    lw_virtual_base = virtual_base;
 
     led_addr = (volatile uint32_t *)((uint8_t *)lw_virtual_base + LED_PIO_BASE);
     sw_addr  = (volatile uint32_t *)((uint8_t *)lw_virtual_base + SW_PIO_BASE);
@@ -58,7 +56,7 @@ int hw_init(void)
 void hw_shutdown(void)
 {
     if (lw_virtual_base) {
-        munmap((void *)((uint8_t *)lw_virtual_base - LW_BRIDGE_OFFSET), HW_REGS_SPAN);
+        munmap(lw_virtual_base, HW_REGS_SPAN);
         lw_virtual_base = NULL;
     }
 
