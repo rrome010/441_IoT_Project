@@ -7,7 +7,9 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 int random_mode = 0;
 int demo_mode   = 0;
@@ -44,6 +46,7 @@ static void *controller_thread(void *arg) {
 
 int main(int argc, char *argv[]) {
     signal(SIGINT, sigint_handler);
+    srand((unsigned int)time(NULL));
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--random") == 0) {
