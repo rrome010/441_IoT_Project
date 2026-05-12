@@ -1,0 +1,12 @@
+# Build artifacts
+*.o
+*.exe
+/smart_home
+
+# Editor / IDE
+*.swp
+.vscode/
+.idea/
+
+# Windows auto-creates this on any FAT volume (e.g. the SD card)
+System Volume Information/
