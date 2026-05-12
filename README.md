@@ -45,12 +45,12 @@ The smart home controller reads sensor states, tracks timing information, and de
 
 | LED | Meaning |
 |-----|---------|
-| LED1 | Door active |
-| LED2 | Motion detected |
-| LED3 | Faucet running |
-| LED4 | TV/appliance active |
-| LED7 | Water Alert |
-| LED9 | Automatic hallway light |
+| LED0 | Door active |
+| LED1 | Motion detected |
+| LED2 | Faucet running |
+| LED3 | TV/appliance active |
+| LED6 | Water alert |
+| LED8 | Automatic hallway light |
 
 
 ## System behavior
@@ -60,20 +60,20 @@ The system operates using both direct sensor feedback and inferred activity.
 ### Direct sensor feedback
 
 ```text
-SW0 -> LED1 -> Door active
-SW1 -> LED2 -> Motion detected
-SW2 -> LED3 -> Faucet running
-SW3 -> LED4 -> TV/appliance active
+SW0 -> LED0 -> Door active
+SW1 -> LED1 -> Motion detected
+SW2 -> LED2 -> Faucet running
+SW3 -> LED3 -> TV/appliance active
 ```
 
 ### Inferred outputs
 
-LED8 and LED9 are not direct sensor indicators.  
+LED6 and LED8 are not direct sensor indicators.  
 They are derived from controller logic.
 
 ```text
 Motion detected -> LED8 hallway light turns ON
-Faucet active too long -> LED9 alert turns ON
+Faucet active too long -> LED6 alert turns ON
 ```
 
 ## Activity rules
@@ -139,12 +139,15 @@ make
 Run the main smart home program:
 
 ```bash
-sudo ./smart_home
-normal execution runs with memory addressess of switches, and leds on the de10
-use flags --random for random inputs of sensors or --demo for a predefined demo
+sudo ./smart_home              # hardware mode (default): reads SW0-3, drives LEDs
+sudo ./smart_home --random     # randomly-generated sensor inputs (no hardware)
+sudo ./smart_home --demo       # predefined scripted sequence
 ```
 
-## Suggested  sequence
+`sudo` is needed because hardware mode opens `/dev/mem` to map the FPGA
+lightweight bridge.
+
+## Suggested sequence
 
 Use the switches to simulate a resident moving through the smart home.
 
@@ -160,11 +163,11 @@ Use the switches to simulate a resident moving through the smart home.
 Expected LED behavior:
 
 ```text
-SW0 ON -> LED1 ON
-SW1 ON -> LED2 ON and LED8 ON
-SW2 ON -> LED3 ON
-SW3 ON -> LED4 ON
-Faucet active too long -> LED9 ON
+SW0 ON -> LED0 ON
+SW1 ON -> LED1 ON and LED8 ON
+SW2 ON -> LED2 ON
+SW3 ON -> LED3 ON
+Faucet active too long -> LED6 ON
 ```
 
 ## Design notes
