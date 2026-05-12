@@ -29,5 +29,6 @@ event_queue_t *event_queue_create(size_t capacity);
 void           event_queue_destroy(event_queue_t *q);
 int            event_queue_push(event_queue_t *q, const event_t *ev);
 int            event_queue_pop(event_queue_t *q, event_t *out);
+int            event_queue_try_pop(event_queue_t *q, event_t *out);
 
 #endif
