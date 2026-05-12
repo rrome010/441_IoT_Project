@@ -17,7 +17,12 @@ static int door_init(sensor_t *s) {
     door_state_t *st = calloc(1, sizeof(*st));
     if (!st) return -1;
 
-    st->prev_open = -1;
+    if (hw_mode) {
+        st->open      = hw_read_switch(0);
+        st->prev_open = st->open;
+    } else {
+        st->prev_open = -1;
+    }
     s->state = st;
     return 0;
 }

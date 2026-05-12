@@ -17,7 +17,12 @@ static int appliance_init(sensor_t *s) {
     appliance_state_t *st = calloc(1, sizeof(*st));
     if (!st) return -1;
 
-    st->prev_on = -1;
+    if (hw_mode) {
+        st->on      = hw_read_switch(3);
+        st->prev_on = st->on;
+    } else {
+        st->prev_on = -1;
+    }
     s->state = st;
     return 0;
 }

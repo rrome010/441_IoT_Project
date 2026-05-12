@@ -17,7 +17,12 @@ static int motion_init(sensor_t *s) {
     motion_state_t *st = calloc(1, sizeof(*st));
     if (!st) return -1;
 
-    st->prev_motion_detected = -1;
+    if (hw_mode) {
+        st->motion_detected      = hw_read_switch(1);
+        st->prev_motion_detected = st->motion_detected;
+    } else {
+        st->prev_motion_detected = -1;
+    }
     s->state = st;
     return 0;
 }
